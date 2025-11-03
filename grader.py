@@ -124,7 +124,7 @@ if __name__ == "__main__":
         "--output_path",
         type=str,
         required=False,
-        default="submission_graded.csv",
+        default="grades.csv",
         help="Путь для результата",
     )
 
