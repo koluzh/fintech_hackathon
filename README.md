@@ -5,16 +5,19 @@
 
 ## Запуск
 ```python
-python main.py --retriever_k 8 --reranker_k 1 --reranker_threshold 0.3 --retriever_threshold 0.6 --truncation_limit 1200 --n_questions 4 --mode prod
+python main.py --retriever_k 8 --reranker_k 1 --reranker_threshold 0.3 --retriever_threshold 0.6 --truncation_limit 1200 --n_questions 4 --mode prod --use_bm25 --question_id 299 --temperature 0.2
 ```
 1. **--retriever_k** Количество документов для ретривера
-2. **--reranker_k** Количество документов для реранкера
+2. **--reranker_k** Количество документов для реранкера (пофиксил reranker_k > 1)
 3. **--reranker_threshold** Порог релевантности для реранкера
 4. **--retriever_threshold** Порог сходства для ретривера
 5. **--truncation_limit** Максимальная длина документа для реранкера
 6. **--n_questions** Количество вопросов для обработки (от 1 до 500)
 7. **--mode** prod - будут использованы ключи LLM_API_KEY и EMBEDDER_API_KEY из ai-for-finance-hack, test - будут использованы ключи OPENROUTER_API_KEY (для всего, кроме реранкера) и EMBEDDER_API_KEY (только для реранкера)
-   
+8. **--question_id** ID конкретного вопроса, если указан, то n_questions будет проигнорирован (всегда = 1)
+9. **--use_bm25** использовать альтернативный ретривер bm25 вместо базового ретривера (реализован без сторонней либы)
+10. **--temperature** задаем температуру для генеративной модели
+
 ```python
 load_dotenv()
 LLM_API_KEY = os.getenv("LLM_API_KEY")
