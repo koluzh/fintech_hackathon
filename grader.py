@@ -1,6 +1,7 @@
 from openai import OpenAI
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
+from time import perf_counter
 import argparse
 import asyncio
 import os
@@ -80,9 +81,9 @@ class Grader:
             "reasoning": response.reasoning
         }
 
-    async def start(self, df, batch_size: int = 3):
-        questions = df['Вопрос'].tolist()
-        answers = df['Ответы на вопрос'].tolist()
+    async def start(self, df, batch_size: int = 3, output_path: str = 'grades.csv'):
+        questions = df['question'].tolist()
+        answers = df['result'].tolist()
 
         results = []
 
@@ -102,7 +103,7 @@ class Grader:
             )
 
             results.extend(batch_grades)
-            pd.DataFrame(results).to_csv('grades.csv', index=False)
+            pd.DataFrame(results).to_csv(output_path, index=False)
 
             print(
             f"Завершен батч {batch_idx}/{batches_total}."
@@ -129,6 +130,14 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
+        "--batch_size",
+        type=int,
+        required=False,
+        default="3",
+        help="Размер батча",
+    )
+
+    parser.add_argument(
         "--grading_model",
         type=str,
         required=False,
@@ -147,19 +156,24 @@ if __name__ == "__main__":
     args = parser.parse_args()
     input_path = args.input_path
     output_path = args.output_path
+    batch_size = args.batch_size
     grading_model = args.grading_model
     grade_threshold = args.grade_threshold
 
     if os.path.exists(input_path):
-        test_data = pd.read_csv(input_path)
-
+        df = pd.read_csv(input_path)
+        columns = ['', 'question', 'result']
+        test_data = pd.DataFrame(df, columns=columns)
     try:
         grader = Grader(grading_model)
     except ValueError as e:
         print(f"❌ {e}")
 
-    asyncio.run(grader.start(test_data))
+    start = perf_counter()
+    asyncio.run(grader.start(df=test_data, batch_size=batch_size, output_path=output_path))
+    stop = perf_counter()
 
+    print("time taken: ", stop - start)
     if os.path.exists(output_path):
         results = pd.read_csv(output_path)
 
