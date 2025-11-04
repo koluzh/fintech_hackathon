@@ -482,6 +482,9 @@ async def main():
                        help='Use BM25 instead of embedding-based retrieval')
     parser.add_argument('--question_id', type=int, default=None,
                        help='Process specific question ID (overrides n_questions)')
+    parser.add_argument('--vector_db', type=str, default='my_vdb.db', 
+                       choices=['my_vdb.db', 'context_chunking_llama.db', 'context_chunking_grok.db'],
+                       help='Vector database file to load')
     
     args = parser.parse_args()
     
@@ -493,7 +496,8 @@ async def main():
     print(f"Parameters: retriever_k={args.retriever_k}, reranker_k={args.reranker_k}, "
           f"reranker_threshold={args.reranker_threshold}, retriever_threshold={args.retriever_threshold}, "
           f"truncation_limit={args.truncation_limit}, n_questions={args.n_questions}, mode={args.mode}, "
-          f"temperature={args.temperature}, use_bm25={args.use_bm25}, question_id={args.question_id}")
+          f"temperature={args.temperature}, use_bm25={args.use_bm25}, question_id={args.question_id}, "
+          f"vector_db={args.vector_db}")
     
     questions_df = pd.read_csv('questions.csv')
     print(f"Loaded {len(questions_df)} questions")
@@ -511,7 +515,8 @@ async def main():
                 row['truncation_limit'] == args.truncation_limit and
                 row['mode'] == args.mode and
                 row.get('temperature', 0.7) == args.temperature and
-                row.get('use_bm25', False) == args.use_bm25):
+                row.get('use_bm25', False) == args.use_bm25 and
+                row.get('vector_db', 'my_vdb.db') == args.vector_db):
                 processed_questions.add(row['question_id'])
     
     # Фильтрация вопросов для обработки
@@ -536,8 +541,8 @@ async def main():
     
     try:
         embeddings = CustomEmbeddings(args.mode)
-        vectorstore = InMemoryVectorStore.load('my_vdb.db', embeddings)
-        print("Vector store loaded")
+        vectorstore = InMemoryVectorStore.load(args.vector_db, embeddings)
+        print(f"Vector store loaded: {args.vector_db}")
         
         # Инициализация BM25 индекса если нужно
         bm25_index = None
@@ -553,7 +558,7 @@ async def main():
             print(f"BM25 index built with {len(all_documents)} documents")
             
     except Exception as e:
-        print(f"Error loading vector store: {e}")
+        print(f"Error loading vector store {args.vector_db}: {e}")
         return
     
     all_results = []
@@ -566,6 +571,9 @@ async def main():
         result = await process_question(vectorstore, embeddings, question, question_id, args.retriever_k, 
                                       args.reranker_k, args.reranker_threshold, args.retriever_threshold,
                                       args.truncation_limit, args.mode, args.temperature, args.use_bm25, bm25_index)
+        
+        # Добавляем информацию о выбранной БД в результат
+        result['vector_db'] = args.vector_db
         all_results.append(result)
         
         await asyncio.sleep(0.2)
