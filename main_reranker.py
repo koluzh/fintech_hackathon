@@ -257,8 +257,8 @@ async def main(questions, vectorstore, reranker_api_key):
         model=model,
         store=vectorstore,
         reranker_api_key=reranker_api_key,
-        reranker_top_k=1,  
-        reranker_threshold=0.0,  
+        reranker_top_k=10,
+        reranker_threshold=0.2,
         truncation_limit=1500  
     )
     
