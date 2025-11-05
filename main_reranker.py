@@ -139,6 +139,7 @@ class Query(TypedDict):
     problem: str
     answer_structure: str
 
+
 class MyKAG:
     def __init__(self, model, store, reranker_api_key, reranker_top_k=1, reranker_threshold=0.0, truncation_limit=1500):
         self.model = model
@@ -154,8 +155,8 @@ class MyKAG:
         prompt = f"""
         Из заданного вам вопроса сформулируйте структурированный запрос на векторную базу данных.
         Отвечайте кратко. В answer_structure также укажите то, что клиент хочет узнать из ответа на вопрос.
-        question: вопрос без изменений
-        problem: проблема, которая поставлена в вопросе
+        question: вопрос с раскрытыми терминами, таким образом, чтобы не было двусмысленности или недосказанности.
+        problem: проблема, которая поставлена в вопросе, а также толкование вопроса.
         answer_structure: структура ответа, которая полностью покроет заданный вопрос.
         Укажи темы, которые обязательно должны быть покрыты.
         Вопрос, на который нужно ответить:
@@ -170,7 +171,7 @@ class MyKAG:
     def get_knowledge(self, query):
         docs = self.store.similarity_search(query=str(query), k=20)
         knowledge_candidates = [doc.page_content for doc in docs]
-        
+
         if knowledge_candidates and self.reranker_api_key:
             reranked_docs, reranker_time = rerank_docs_with_retry(
                 query=str(query),
@@ -180,12 +181,13 @@ class MyKAG:
                 threshold=self.reranker_threshold,
                 truncation_limit=self.truncation_limit
             )
-            
+
             if reranked_docs:
                 knowledge = '\n'.join([doc['content'] for doc in reranked_docs])
-                print(f"Reranker applied: selected {len(reranked_docs)} documents with scores: {[doc['relevance_score'] for doc in reranked_docs]}")
+                print(
+                    f"Reranker applied: selected {len(reranked_docs)} documents with scores: {[doc['relevance_score'] for doc in reranked_docs]}")
                 return knowledge
-        
+
         knowledge = '\n'.join(knowledge_candidates[:self.reranker_top_k])
         return knowledge
 
@@ -197,6 +199,8 @@ class MyKAG:
         Не используйте не относящиеся к вопросу данные. Приведите ответ на русском языке.
         Если в вопросе есть запрос на какие-то численные данные, и эти данные есть в предоставленных вам знаниях,
         обязательно предоставьте их. Отвечайте на вопрос так, чтобы помочь клиенту.
+        Если в релевантных знаниях есть упоминание законодательной базы, обязательно предоставьте их. 
+        Не упоминайте вещи, которых нет в ответе. Раскрывайте аббревиатуры. Не упоминай клиента или меня.
         Ответ на вопрос ДОЛЖЕН БЫТЬ СВЯЗАН С проблемой, поставленной в вопросе:
         <Problem>
         {query['problem']}
@@ -268,7 +272,7 @@ if __name__ == '__main__':
     RERANKER_API_KEY = os.getenv("EMBEDDER_API_KEY")  # юзаем их EMBEDDER_API_KEY с https://ai-for-finance-hack.up.railway.app/rerank
     
     BASE_URL = 'https://ai-for-finance-hack.up.railway.app/' 
-    #BASE_URL = 'https://openrouter.ai/api/v1' 
+    # BASE_URL = 'https://openrouter.ai/api/v1'
     client = OpenAI(
         base_url=BASE_URL,
         api_key=LLM_API_KEY,
@@ -278,7 +282,7 @@ if __name__ == '__main__':
     corpus = pd.read_csv('train_data.csv').iloc[:10]
     
     embeddings = OpenAIEmbeddings(model="text-embedding-3-small", base_url=BASE_URL, api_key=EMBEDDER_API_KEY)
-    #model = ChatOpenAI(base_url=BASE_URL, model="x-ai/grok-3-mini", api_key=LLM_API_KEY)
+    # model = ChatOpenAI(base_url=BASE_URL, model="x-ai/grok-3-mini", api_key=LLM_API_KEY)
     model = ChatOpenAI(base_url=BASE_URL, model="openrouter/x-ai/grok-3-mini", api_key=LLM_API_KEY)
     
     chunker = LLMChunker(model, corpus)
