@@ -263,7 +263,7 @@ if __name__ == "__main__":
             comparison = False
 
         grader = Grader(grading_model, comparison)
-        test_data = test_data.iloc[:10]
+        test_data = test_data
 
         start = perf_counter()
         asyncio.run(main(grade_threshold, comparison))
