@@ -196,7 +196,7 @@ if __name__ == "__main__":
     grade_threshold = args.grade_threshold
 
     if os.path.exists(input_path):
-        test_data = pd.read_csv(input_path).iloc[:10]
+        test_data = pd.read_csv(input_path)
     try:
         grader = Grader(grading_model)
     except ValueError as e:
