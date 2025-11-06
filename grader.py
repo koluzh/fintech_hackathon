@@ -7,6 +7,7 @@ from tqdm import tqdm
 import argparse
 import asyncio
 import logging
+import json
 import os
 import pandas as pd
 
@@ -17,12 +18,13 @@ logging.basicConfig(filename="grader.log", filemode="a", level=logging.DEBUG, fo
 logger = logging.getLogger(__name__)
 
 class GradeResponse(BaseModel):
-    grade: float = Field(..., description="Оценка ответа")
+    grade: str = Field(..., description="Оценка ответа")
     reasoning: str = Field(..., description="Обоснование оценки")
 
 class Grader:
-    def __init__(self, grading_model):
+    def __init__(self, grading_model, comparison = False):
         self.grading_model = grading_model
+        self.comparison = comparison
         self.client = OpenAI(base_url="https://openrouter.ai/api/v1",api_key=LLM_API_KEY)
      
     def get_grading_prompts(self, question, answer_for_grading):
@@ -71,44 +73,86 @@ Instructions:
         """.strip()
         }
 
-    def send_answer(self, question, answer, comparison = False):
-        prompts = self.get_grading_prompts(question, answer)
+    def get_comparing_prompts(self, question, test_answer, baseline_answer): 
+        return {
+            "system_prompt": f"""
+        Тебе будет выданы вопрос пользователя и два варианта ответа от Test и Baseline. 
+        Твоя задача - выбрать, какой из ответов будет более полезен и понятен пользователю, задавшему вопрос.
+
+        Также предоставь обратную связь в виде:
+
+        Обратная связь:::
+        Оценка: (какой из ответов выбран, Test или Baseline)
+        Обоснование: (опиши причины для оценки в виде текста)
+
+        """.strip(),
+            "user_prompt": f"""
+        Даны следующие вопрос и ответ:
+
+        ```
+        Вопрос: {question}
+        Ответ Test: {test_answer}
+        Ответ Baseline: {baseline_answer}
+        ```
+
+        Твоя задача - выбрать, какой из ответов будет более полезен и понятен пользователю, задавшему вопрос. 
+
+        Обратная связь:::
+        Оценка: (какой из ответов выбран, Test или Baseline)
+        Обоснование: (опиши причины для оценки в виде текста)
+
+        Ты должен предоставить оценку и обоснование. 
+        """.strip()
+    }
+
+    def send_answer(self, prompts):
+        response = None
         try: 
             response = self.client.chat.completions.parse(
-                    model = self.grading_model,
-                    messages = [
-                        {
-                            "role": "system",
-                            "content": prompts["system_prompt"]
-                        },
-                        {
-                            "role": "user",
-                            "content": prompts["user_prompt"]
-                        }
-                    ],
-                    response_format=GradeResponse
+                model = self.grading_model,
+                messages = [
+                    {
+                        "role": "system",
+                        "content": prompts["system_prompt"]
+                    },
+                    {
+                        "role": "user",
+                        "content": prompts["user_prompt"]
+                    }
+                ],
+                response_format=GradeResponse
             )
-
+            
             return response.choices[0].message.parsed
         except Exception as e:
-            logger.debug(e, response)
+            logger.debug(f"Error: {e}, Response: {response}")
             return e
 
     def grade_answer(self, data):
         try:
-            question_id, question, answer = data
-            response: GradeResponse = self.send_answer(question, answer)
+            if self.comparison == True:
+                question_id, question, answer, baseline_answer = data 
+                prompts = self.get_comparing_prompts(question, answer, baseline_answer)
+            else:
+                question_id, question, answer = data
+                prompts = self.get_grading_prompts(question, answer)                   
+            response = self.send_answer(prompts)
         except Exception as e:
-            logger.debug(response)
+            logger.debug(f"Error in grade_answer: {e}, Response: {response}")
             return e
         
-        return {
+        result = {
             "question_id": question_id, 
             "question": question,
             "answer": answer,
             "grade" : response.grade,
             "reasoning": response.reasoning
         }
+
+        if self.comparison == True and baseline_answer is not None:
+            result['baseline_answer'] = baseline_answer
+    
+        return result
     
     async def start(self, df):
         max_workers = 20
@@ -123,7 +167,7 @@ Instructions:
             data = row.to_list()
             fut = loop.run_in_executor(executor, self.grade_answer, data)
             tasks.append(fut) 
-            print(f"[SCHED] Task {i}/{tasks_count} scheduled")
+            print(f"[SCHED] Task {i}/{tasks_count} scheduled - {len(data)}")
         
         results = []
         for f in tqdm(asyncio.as_completed(tasks), total=len(tasks), desc="Answering questions"):
@@ -139,18 +183,21 @@ Instructions:
 
         return results
  
-async def main(grade_threshold):
+async def main(grade_threshold, comparison):
     results = await grader.start(df=test_data)
     results_df = pd.DataFrame(results)
     results_df.to_csv(output_path, index=False)
 
-    answers_below_threshold = results_df.loc[results_df['grade'] < grade_threshold]
-
     print(f"Результаты:")
     print(f"Оценивающая модель: {grading_model}")
     print(f"Всего вопросов: {len(results)}")
-    print(f"Количество ответов с оценкой ниже порога {grade_threshold}: {len(answers_below_threshold.index)}")
-    print(f"   • Ответы: {answers_below_threshold['question_id'].to_list()}")
+    if comparison == True:
+        print(f"Выбран ответ Test: {len(results_df.loc[results_df['grade'] == "Test"])}")
+        print(f"Выбран ответ Baseline: {len(results_df.loc[results_df['grade'] == "Baseline"])}")
+    else:
+        answers_below_threshold = results_df.loc[results_df['grade'] < grade_threshold]
+        print(f"Количество ответов с оценкой ниже порога {grade_threshold}: {len(answers_below_threshold.index)}")
+        print(f"   • Ответы: {answers_below_threshold['question_id'].to_list()}")
     
     return results
 
@@ -189,7 +236,15 @@ if __name__ == "__main__":
         help="Граница для прохождения проверки",
     )
 
+    parser.add_argument(
+        "--baseline_path",
+        type=str,
+        required=False,
+        help="Бейслайн для сравнения"
+    )
+
     args = parser.parse_args()
+    baseline_path = args.baseline_path
     input_path = args.input_path
     output_path = args.output_path
     grading_model = args.grading_model
@@ -198,13 +253,25 @@ if __name__ == "__main__":
     if os.path.exists(input_path):
         test_data = pd.read_csv(input_path)
     try:
-        grader = Grader(grading_model)
+        if baseline_path is not None and os.path.exists(baseline_path):
+            comparison = True
+            baseline_data = pd.DataFrame(pd.read_csv(baseline_path), columns=['ID вопроса', 'Ответы на вопрос']).rename(columns={'Ответы на вопрос': 'Бейслайн'}, errors="raise")
+            if len(test_data) != len(baseline_data):
+                raise ValueError("Количество ответов в тесте и бейслайне отличаются")
+            test_data = pd.merge(test_data, baseline_data, on='ID вопроса')
+        else:
+            comparison = False
+
+        grader = Grader(grading_model, comparison)
+        test_data = test_data.iloc[:10]
+
+        start = perf_counter()
+        asyncio.run(main(grade_threshold, comparison))
+        stop = perf_counter()
+
+        print("time taken: ", stop - start)
+
     except ValueError as e:
         print(f"❌ {e}")
 
-    start = perf_counter()
-    asyncio.run(main(grade_threshold))
-    stop = perf_counter()
 
-    print("time taken: ", stop - start)
-   
