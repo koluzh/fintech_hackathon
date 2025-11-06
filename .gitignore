@@ -206,3 +206,7 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 *.xml
+my_vdb.db
+*.db
+/my_chunks_grok
+/my_chunks_llama
